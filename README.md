@@ -2,6 +2,10 @@
 
 Real-time 3D conversational avatar with lip sync, powered by **NVIDIA Kimi** (brain) and **ElevenLabs** (voice).
 
+## Screenshot
+
+![Avatar AI](docs/screenshot.png)
+
 ## Features
 
 - Split-screen UI: 3D avatar (left) + chat (right)
