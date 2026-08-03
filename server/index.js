@@ -14,6 +14,7 @@ import { createA2FRouter } from "./routes/a2f.js";
 import { createTTSRouter } from "./routes/tts.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createHistoryRouter } from "./routes/history.js";
+import { createMemoryRouter } from "./routes/memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -147,6 +148,7 @@ app.use("/api/a2f", createA2FRouter());
 app.use("/api/tts", createTTSRouter());
 app.use("/api/auth", createAuthRouter());
 app.use("/api/history", createHistoryRouter());
+app.use("/api/memory", createMemoryRouter());
 
 const publicDir = path.join(__dirname, "..", "public");
 app.use(express.static(publicDir, { index: false }));

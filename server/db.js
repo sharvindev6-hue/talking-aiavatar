@@ -63,6 +63,28 @@ export async function initSchema() {
     )`,
     // Keep existing tables up to date after schema changes.
     `ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    // Hermes-style long-term memory: durable facts about the user.
+    `CREATE TABLE IF NOT EXISTS memory_facts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fact TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'other', -- preference | personal | project | habit | other
+      confidence INTEGER NOT NULL DEFAULT 1,  -- 1 = stated explicitly, 0 = inferred
+      source_session_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_memory_facts_user ON memory_facts(user_id)`,
+    // LLM-written recap of each chat session (persistent memory across sessions).
+    `CREATE TABLE IF NOT EXISTS session_summaries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL UNIQUE REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      summary TEXT NOT NULL,
+      key_points JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
   ];
 
   for (const sql of statements) {

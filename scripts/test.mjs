@@ -6,6 +6,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { scrubSecrets, createRateLimiter } from "../server/security.js";
 import { parseAssistantJson } from "../server/routes/chat.js";
+import {
+  normalizeFact,
+  factsOverlap,
+  parseExtraction,
+} from "../server/memory.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -113,6 +118,38 @@ check(
   "never emits bare key for truncated JSON",
   !parseAssistantJson('{"say": "Full reply that got cut off mid-answer').say.startsWith("say")
 );
+
+// --- 5. Memory engine helpers (pure functions, no DB) ---
+console.log("memory helpers:");
+check("normalizeFact lowercases + trims", normalizeFact("  Likes Pizza! ") === "likes pizza");
+check("normalizeFact strips trailing punct", normalizeFact("Likes Pizza?.") === "likes pizza");
+check("factsOverlap exact", factsOverlap("likes pizza", "likes pizza"));
+check(
+  "factsOverlap containment (long enough)",
+  factsOverlap("prefers short answers", "prefers short answers in chat")
+);
+check(
+  "factsOverlap rejects too-short containment",
+  !factsOverlap("work", "working on a project")
+);
+check("factsOverlap rejects unrelated", !factsOverlap("likes pizza", "plays guitar"));
+check(
+  "parseExtraction strict JSON",
+  (() => {
+    const out = parseExtraction(
+      '{"facts":[{"fact":"likes pizza","category":"preference","confidence":1}],"summary":"Chit-chat about food.","key_points":["pizza"]}'
+    );
+    return out.facts.length === 1 && out.facts[0].fact === "likes pizza" && out.summary.includes("food");
+  })()
+);
+check(
+  "parseExtraction rejects bad category",
+  (() => {
+    const out = parseExtraction('{"facts":[{"fact":"x","category":"hack","confidence":1}]}');
+    return out.facts[0].category === "other";
+  })()
+);
+check("parseExtraction empty on junk", parseExtraction("no json here").facts.length === 0);
 
 console.log(`\n${checks} checks, ${failures} failed`);
 process.exit(failures ? 1 : 0);

@@ -316,6 +316,109 @@ body {
   }
 }
 
+/* ---------- Memory drawer ---------- */
+
+.memory-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.memory-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.memory-forget-all {
+  border: none;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.memory-forget-all:hover {
+  background: rgba(248, 113, 113, 0.22);
+}
+
+.memory-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.memory-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+}
+
+.memory-item:hover {
+  border-color: rgba(59, 158, 255, 0.4);
+}
+
+.memory-item-text {
+  flex: 1;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  padding-right: 1.5rem;
+}
+
+.memory-item-meta {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: rgba(59, 158, 255, 0.12);
+  border: 1px solid rgba(59, 158, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  white-space: nowrap;
+}
+
+.memory-item-delete {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  opacity: 0;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.memory-item:hover .memory-item-delete {
+  opacity: 1;
+}
+
+.memory-item-delete:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+}
+
 .subtitle {
   font-size: 0.8rem;
   color: var(--text-muted);

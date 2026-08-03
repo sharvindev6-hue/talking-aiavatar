@@ -21,6 +21,13 @@ const els = {
   historyDrawer: document.getElementById("history-drawer"),
   historyList: document.getElementById("history-list"),
   historyEmpty: document.getElementById("history-empty"),
+  memoryBtn: document.getElementById("memory-btn"),
+  memoryClose: document.getElementById("memory-close"),
+  memoryOverlay: document.getElementById("memory-overlay"),
+  memoryDrawer: document.getElementById("memory-drawer"),
+  memoryList: document.getElementById("memory-list"),
+  memoryEmpty: document.getElementById("memory-empty"),
+  memoryForgetAll: document.getElementById("memory-forget-all"),
   userEmail: document.getElementById("user-email"),
   logoutBtn: document.getElementById("logout-btn"),
   attachBtn: document.getElementById("attach-btn"),
@@ -578,6 +585,72 @@ function closeHistory() {
   els.historyOverlay.hidden = true;
 }
 
+// ---------- Memory drawer ----------
+
+async function loadMemory() {
+  try {
+    const res = await fetch("/api/memory");
+    if (!res.ok) return;
+    const data = await res.json();
+    renderMemoryList(data.facts || []);
+  } catch (err) {
+    console.error("Failed to load memory:", err);
+  }
+}
+
+function renderMemoryList(facts) {
+  els.memoryList.replaceChildren();
+  els.memoryEmpty.hidden = facts.length > 0;
+  els.memoryForgetAll.hidden = facts.length === 0;
+
+  for (const fact of facts) {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+
+    const text = document.createElement("span");
+    text.className = "memory-item-text";
+    text.textContent = fact.fact;
+
+    const meta = document.createElement("span");
+    meta.className = "memory-item-meta";
+    if (fact.category && fact.category !== "other") {
+      meta.textContent = fact.category;
+    }
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "history-item-delete memory-item-delete";
+    del.title = "Forget this";
+    del.setAttribute("aria-label", `Forget: ${fact.fact}`);
+    del.textContent = "×";
+    del.addEventListener("click", async () => {
+      try {
+        const res = await fetch(`/api/memory/facts/${fact.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("delete failed");
+        await loadMemory();
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    item.append(text, meta, del);
+    els.memoryList.appendChild(item);
+  }
+}
+
+function openMemory() {
+  loadMemory();
+  els.memoryDrawer.classList.add("open");
+  els.memoryDrawer.setAttribute("aria-hidden", "false");
+  els.memoryOverlay.hidden = false;
+}
+
+function closeMemory() {
+  els.memoryDrawer.classList.remove("open");
+  els.memoryDrawer.setAttribute("aria-hidden", "true");
+  els.memoryOverlay.hidden = true;
+}
+
 async function startNewChat() {
   interruptAll();
   clearMessages();
@@ -805,11 +878,31 @@ async function init() {
   els.historyBtn.addEventListener("click", openHistory);
   els.historyClose.addEventListener("click", closeHistory);
   els.historyOverlay.addEventListener("click", closeHistory);
+  els.memoryBtn.addEventListener("click", openMemory);
+  els.memoryClose.addEventListener("click", closeMemory);
+  els.memoryOverlay.addEventListener("click", closeMemory);
+  els.memoryForgetAll.addEventListener("click", async () => {
+    if (!confirm("Forget everything the avatar remembers about you?")) return;
+    try {
+      const res = await fetch("/api/memory/forget", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error("forget failed");
+      await loadMemory();
+    } catch (err) {
+      console.error(err);
+    }
+  });
   els.logoutBtn.addEventListener("click", logout);
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && els.historyDrawer.classList.contains("open")) {
       closeHistory();
+    }
+    if (e.key === "Escape" && els.memoryDrawer.classList.contains("open")) {
+      closeMemory();
     }
   });
 

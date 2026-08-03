@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import { query } from "../db.js";
 import { requireAuth } from "../auth.js";
 import { scrubSecrets, createRateLimiter } from "../security.js";
+import {
+  buildMemoryBlock,
+  catchUpMemory,
+  extractMemoryForSession,
+} from "../memory.js";
 
 const MAX_MESSAGE_CHARS = 10000; // bounds LLM cost per request
 
@@ -235,87 +240,6 @@ async function saveMessage(sessionId, { role, content, raw, emotion, gesture, at
   ]);
 }
 
-/**
- * Build a compact, text-only recap of the user's OTHER recent conversations
- * so the avatar has cross-session memory ("what did we do last time?").
- * Caps keep context reasonable: 3 sessions, 4 messages each, 5000 chars total.
- */
-async function buildMemoryBlock(userId, currentSessionId) {
-  const MAX_SESSIONS = 3;
-  const MAX_LAST_MSGS = 3; // recent messages per session (plus the first one)
-  const MAX_MSG_CHARS = 300;
-  const MAX_FILE_EXCERPT = 200;
-  const MAX_TOTAL_CHARS = 5000;
-
-  const sessions = await query(
-    `SELECT id, title, updated_at FROM chat_sessions s
-     WHERE user_id = $1 AND id <> $2
-       AND (SELECT count(*) FROM messages m WHERE m.session_id = s.id) > 0
-     ORDER BY updated_at DESC LIMIT $3`,
-    [userId, currentSessionId, MAX_SESSIONS]
-  );
-
-  const blocks = [];
-  let total = 0;
-  for (const s of sessions.rows) {
-    // First message (usually the substantive prompt) + the most recent ones,
-    // so key exchanges in long sessions aren't lost from memory.
-    const msgs = await query(
-      `(SELECT id, role, content, attachments, created_at FROM messages
-        WHERE session_id = $1 ORDER BY created_at ASC LIMIT 1)
-       UNION ALL
-       (SELECT id, role, content, attachments, created_at FROM messages
-        WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2)
-       ORDER BY created_at ASC`,
-      [s.id, MAX_LAST_MSGS]
-    );
-    if (msgs.rows.length === 0) continue;
-
-    const seen = new Set();
-    const unique = msgs.rows.filter((m) =>
-      seen.has(m.id) ? false : (seen.add(m.id), true)
-    );
-
-    const lines = unique.map((m) => {
-      const text = String(m.content || "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, MAX_MSG_CHARS);
-      let attNames = [];
-      let excerpt = "";
-      try {
-        const atts = m.attachments || [];
-        attNames = atts.map((a) => a.name).filter(Boolean);
-        const withText = atts.find((a) => a.extractedText);
-        if (withText?.extractedText) {
-          excerpt = ` (file content: ${String(withText.extractedText)
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, MAX_FILE_EXCERPT)})`;
-        }
-      } catch {
-        attNames = [];
-      }
-      const extra = attNames.length ? ` [files: ${attNames.join(", ")}]${excerpt}` : excerpt;
-      const who = m.role === "user" ? "User" : "Avatar";
-      return `${who}: ${text || "(attachment)"}${extra}`;
-    });
-
-    const heading = `[MEMORY — Previous conversation "${s.title || "Untitled"}"]:`;
-    const block = `${heading}\n${lines.join("\n")}`;
-    if (total + block.length > MAX_TOTAL_CHARS) break;
-    blocks.push(block);
-    total += block.length;
-  }
-
-  if (blocks.length === 0) return null;
-  return (
-    "The following are your previous conversations with this user (MEMORY, not the live thread). " +
-    "Use them for continuity and to answer questions about past sessions.\n\n" +
-    blocks.join("\n\n")
-  );
-}
-
 export function createChatRouter() {
   const router = Router();
 
@@ -383,8 +307,17 @@ export function createChatRouter() {
       const useVision = hasImages || hist.rows.some(messageHasImages);
       const activeModel = useVision ? visionModel : model;
 
-      // Cross-session memory: recap of the user's other recent chats.
-      const memoryBlock = await buildMemoryBlock(req.user.id, sessionId);
+      // Long-term memory: serverless-safe catch-up (learn the previous
+      // exchange now if the post-response extraction was killed) + real
+      // facts & session summaries injected as a [MEMORY] block. Memory is
+      // best-effort — a hiccup must never break the chat reply.
+      await catchUpMemory(req.user.id, sessionId);
+      let memoryBlock = null;
+      try {
+        memoryBlock = await buildMemoryBlock(req.user.id, sessionId);
+      } catch {
+        memoryBlock = null;
+      }
       const systemContent = memoryBlock
         ? `${SYSTEM_PROMPT}\n\n${memoryBlock}`
         : SYSTEM_PROMPT;
@@ -462,6 +395,12 @@ export function createChatRouter() {
           sessionId,
         ]);
       }
+
+      // Learn from this exchange in the background (best-effort, never blocks
+      // the reply). On serverless deploys the function may return before the
+      // extraction finishes — the next request will still recall the facts
+      // that did land, and the memory drawer stays consistent.
+      extractMemoryForSession(req.user.id, sessionId);
 
       res.json({ content: result.content, parsed: result.parsed });
     } catch (err) {
