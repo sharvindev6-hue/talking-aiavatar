@@ -47,7 +47,7 @@ const CSP = [
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob:",
   "media-src 'self' blob: data:",
-  "connect-src 'self' https://cdn.jsdelivr.net ws: wss:",
+  "connect-src 'self' blob: https://cdn.jsdelivr.net ws: wss:",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",
   "object-src 'none'",
   "base-uri 'self'",
