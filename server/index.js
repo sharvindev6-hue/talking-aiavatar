@@ -35,11 +35,16 @@ function originAllowed(req, origin) {
   if (!origin) return true; // same-origin GETs, curl, native clients
   if (EXPLICIT_ORIGINS.length > 0) return EXPLICIT_ORIGINS.includes(origin);
   // Same-origin default: compare the Origin against this request's own host.
-  const proto = String(
-    req.headers["x-forwarded-proto"] || req.protocol || "http"
-  )
-    .split(",")[0]
-    .trim();
+  // Only trust x-forwarded-proto when behind a reverse proxy (TRUST_PROXY=true,
+  // as on Vercel); otherwise use the connection's actual protocol.
+  const proto =
+    process.env.TRUST_PROXY === "true"
+      ? String(
+          req.headers["x-forwarded-proto"] || req.protocol || "http"
+        )
+          .split(",")[0]
+          .trim()
+      : req.protocol || "http";
   const host = req.headers.host || "";
   return origin === `${proto}://${host}`;
 }
@@ -88,10 +93,12 @@ app.use((_req, res, next) => {
 // for both CORS headers and the CSRF check below.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && originAllowed(req, origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  if (origin) {
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
+    if (originAllowed(req, origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
   }
   if (req.method === "OPTIONS") {
     res.setHeader(
