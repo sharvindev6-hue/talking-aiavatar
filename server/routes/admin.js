@@ -20,6 +20,14 @@ const ADMIN_SECRET =
     .update(`${ADMIN_PASSWORD}|${ADMIN_EMAIL}`)
     .digest("hex");
 
+// The fallback key is derived from the password, so an unset secret weakens
+// cookie security if the password ever leaks. Make it obvious at boot.
+if (!process.env.ADMIN_SESSION_SECRET) {
+  console.warn(
+    "[security] ADMIN_SESSION_SECRET not set — admin cookies signed with a key derived from ADMIN_PASSWORD. Set a random one in production (openssl rand -hex 32)."
+  );
+}
+
 export function isAdminEmail(email) {
   return (
     Boolean(ADMIN_EMAIL) &&
@@ -59,6 +67,7 @@ function readAdmin(req) {
   try {
     const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
     if (!data.email || Date.now() > data.exp) return null;
+    if (ADMIN_EMAIL && data.email !== ADMIN_EMAIL) return null;
     return data;
   } catch {
     return null;
