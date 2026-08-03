@@ -20,3 +20,6 @@ Thumbs.db
 # Build output
 dist/
 coverage/
+
+# Standalone private admin repo (kept out of the public repo)
+admin-private/
