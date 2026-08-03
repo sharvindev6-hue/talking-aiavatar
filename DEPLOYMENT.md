@@ -67,8 +67,12 @@ Vercel's GitHub integration auto-deploys every push to `main` (preview deploys o
 
 The operator dashboard (analytics, user chat history, live activity feed) lives in its own
 **private** repository (`talking-aiavatar-admin`) as a standalone app that reads from the
-same database. It is not part of this public codebase. See that repo's README for how to
-run and deploy it.
+same database. It is not part of this public codebase.
+
+- **Live:** https://talking-aiavatar-admin.vercel.app (dedicated admin login)
+- **Repo:** https://github.com/sharvindev6-hue/talking-aiavatar-admin (private)
+
+See that repo's README for how to run and deploy it.
 
 ## Notes & known limits
 
