@@ -6,6 +6,13 @@
   padding: 0;
 }
 
+/* The hidden attribute must always win over any display rule (e.g. .overlay
+   sets display:flex, which would otherwise override [hidden] and leave the
+   drawer permanently visible). */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --bg: #0a0a0f;
   --bg-panel: #111118;
