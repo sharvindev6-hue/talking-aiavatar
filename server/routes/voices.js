@@ -26,7 +26,7 @@ export function createVoicesRouter() {
 
       const data = await response.json();
       res.json({
-        defaultVoiceId: process.env.ELEVENLABS_VOICE_ID || "CwhRBWXzGAHq8TQ4Fs17",
+        defaultVoiceId: process.env.ELEVENLABS_VOICE_ID || "EXAVITQu4vr4xnSDxMaL",
         voices: (data.voices || []).map((v) => ({
           id: v.voice_id,
           name: v.name,
