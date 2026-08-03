@@ -50,6 +50,7 @@ function originAllowed(req, origin) {
 }
 
 const app = express();
+app.disable("x-powered-by");
 
 // Behind a reverse proxy (Vercel/nginx) set TRUST_PROXY=true so req.ip comes
 // from X-Forwarded-For and IP-based rate limits work per real client.
