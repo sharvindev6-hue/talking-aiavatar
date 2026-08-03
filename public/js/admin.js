@@ -52,30 +52,19 @@ async function api(path, opts) {
 async function gate() {
   let me;
   try {
-    me = await api("/api/auth/me");
+    me = await api("/api/admin/me");
   } catch (err) {
     if (err.status === 401) {
-      window.location.href = "/login.html?next=/admin.html";
+      window.location.href = "/admin-login.html";
       return false;
     }
     renderWall("Server unreachable. Is it running?");
     return false;
   }
-  // Probe admin access.
-  try {
-    await api("/api/admin/stats");
-  } catch (err) {
-    if (err.status === 403) {
-      renderWall("This account doesn't have admin access.", true);
-      return false;
-    }
-    renderWall("Server error while checking access.");
-    return false;
-  }
-  state.user = me.user;
-  $("who-avatar").textContent = initials(me.user.email);
-  $("who-mail").textContent = me.user.email;
-  document.title = `Admin · ${me.user.email}`;
+  state.user = { email: me.email };
+  $("who-avatar").textContent = initials(me.email);
+  $("who-mail").textContent = me.email;
+  document.title = `Admin · ${me.email}`;
   return true;
 }
 
@@ -88,7 +77,7 @@ function renderWall(message, showSignOut = false) {
         </div>
         <h1>Admin access required</h1>
         <p>${esc(message)}</p>
-        ${showSignOut ? `<a class="btn-primary" href="/login.html">Back to login</a>` : ""}
+        ${showSignOut ? `<a class="btn-primary" href="/admin-login.html">Back to admin login</a>` : ""}
       </div>
     </div>`;
 }
@@ -376,8 +365,8 @@ function bindEvents() {
     b.addEventListener("click", () => setView(b.dataset.view))
   );
   $("logout").addEventListener("click", async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login.html";
+    await fetch("/api/admin/logout", { method: "POST" });
+    window.location.href = "/admin-login.html";
   });
   $("refresh-stats").addEventListener("click", loadOverview);
   $("refresh-feed").addEventListener("click", () =>

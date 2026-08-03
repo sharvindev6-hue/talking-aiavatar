@@ -1,31 +1,100 @@
 import { Router } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { query } from "../db.js";
-import { requireAuth } from "../auth.js";
 import { createRateLimiter } from "../security.js";
 
-// Admins are the users whose emails appear in ADMIN_EMAILS (comma-separated).
-// No DB column needed — the operator controls access from the env, and the
-// admin UI reads from the same list.
-const ADMIN_EMAILS = new Set(
-  (process.env.ADMIN_EMAILS || "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean)
-);
+// Admin access is separate from app accounts. Only the single email in
+// ADMIN_EMAIL with the password in ADMIN_PASSWORD can log in, and the login
+// issues its own signed session cookie (no user row required).
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const ADMIN_COOKIE = "avatar_admin";
+const ADMIN_SESSION_HOURS = 12;
+
+// Signing key for admin sessions: prefer an explicit ADMIN_SESSION_SECRET;
+// otherwise derive one from the password/email so every deployment still has
+// a stable, secret-derived key.
+const ADMIN_SECRET =
+  process.env.ADMIN_SESSION_SECRET ||
+  createHmac("sha256", "avatar-admin")
+    .update(`${ADMIN_PASSWORD}|${ADMIN_EMAIL}`)
+    .digest("hex");
 
 export function isAdminEmail(email) {
-  return ADMIN_EMAILS.has(String(email || "").trim().toLowerCase());
+  return (
+    Boolean(ADMIN_EMAIL) &&
+    String(email || "").trim().toLowerCase() === ADMIN_EMAIL
+  );
+}
+
+function safeEqual(a, b) {
+  const ha = createHmac("sha256", "avatar-pw").update(String(a)).digest();
+  const hb = createHmac("sha256", "avatar-pw").update(String(b)).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+function adminToken(email) {
+  const payload = Buffer.from(
+    JSON.stringify({ email, exp: Date.now() + ADMIN_SESSION_HOURS * 3600 * 1000 })
+  ).toString("base64url");
+  const sig = createHmac("sha256", ADMIN_SECRET)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function readAdmin(req) {
+  const raw = req.cookies?.[ADMIN_COOKIE];
+  if (!raw) return null;
+  const dot = raw.indexOf(".");
+  if (dot <= 0) return null;
+  const payload = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expected = createHmac("sha256", ADMIN_SECRET)
+    .update(payload)
+    .digest("base64url");
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!data.email || Date.now() > data.exp) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function setAdminCookie(res, email) {
+  res.cookie(ADMIN_COOKIE, adminToken(email), {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: ADMIN_SESSION_HOURS * 3600 * 1000,
+    path: "/",
+  });
+}
+
+function clearAdminCookie(res) {
+  res.clearCookie(ADMIN_COOKIE, { path: "/" });
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.user || !isAdminEmail(req.user.email)) {
-    res.status(403).json({ error: "Admin access required" });
+  if (!readAdmin(req)) {
+    res.status(401).json({ error: "Admin login required" });
     return;
   }
   next();
 }
 
-// Guard the admin API against scraping/abuse (per IP).
+// Login attempts get a tight per-IP cap (brute-force protection).
+const loginLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: 10,
+  key: (req) => `adminlogin:${req.ip}`,
+});
+
+// Guard the admin data API against scraping/abuse (per IP).
 const adminLimiter = createRateLimiter({
   windowMs: 60_000,
   max: 300,
@@ -54,7 +123,35 @@ function withAttachments(m) {
 
 export function createAdminRouter() {
   const router = Router();
-  router.use(requireAuth, requireAdmin, adminLimiter);
+
+  // POST /api/admin/login { email, password } — the dedicated admin gate.
+  router.post("/login", loginLimiter, (req, res) => {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+
+    const emailOk = ADMIN_EMAIL && email === ADMIN_EMAIL;
+    const passOk = ADMIN_PASSWORD && safeEqual(password, ADMIN_PASSWORD);
+    if (!emailOk || !passOk) {
+      res.status(401).json({ error: "Incorrect email or password." });
+      return;
+    }
+    setAdminCookie(res, ADMIN_EMAIL);
+    res.json({ ok: true, email: ADMIN_EMAIL });
+  });
+
+  // POST /api/admin/logout
+  router.post("/logout", (req, res) => {
+    clearAdminCookie(res);
+    res.json({ ok: true });
+  });
+
+  // GET /api/admin/me — current admin (from the signed cookie)
+  router.get("/me", requireAdmin, (req, res) => {
+    res.json({ email: readAdmin(req).email });
+  });
+
+  // Everything below requires a valid admin session.
+  router.use(requireAdmin, adminLimiter);
 
   // GET /api/admin/stats — headline numbers + daily message series
   router.get("/stats", async (_req, res, next) => {
