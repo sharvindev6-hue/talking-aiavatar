@@ -85,6 +85,31 @@ export async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )`,
+    // Scheduled automations: natural-language reminders (Hermes-style cron).
+    `CREATE TABLE IF NOT EXISTS reminders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      when_text TEXT NOT NULL,               -- raw natural-language ("tomorrow 7pm")
+      next_fire_at TIMESTAMPTZ NOT NULL,
+      fired_count INTEGER NOT NULL DEFAULT 0,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(next_fire_at) WHERE enabled`,
+    // Procedural memory: reusable skills the avatar creates and auto-applies.
+    `CREATE TABLE IF NOT EXISTS skills (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      trigger TEXT NOT NULL,                 -- keyword/pattern matched at request time
+      instructions TEXT NOT NULL,            -- step-by-step the LLM injects
+      usage_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_skills_user ON skills(user_id)`,
   ];
 
   for (const sql of statements) {

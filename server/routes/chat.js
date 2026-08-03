@@ -8,6 +8,13 @@ import {
   catchUpMemory,
   extractMemoryForSession,
 } from "../memory.js";
+import {
+  looksLikeReminder,
+  parseReminderIntent,
+  createReminder,
+} from "../reminders.js";
+import { detectSkill, createSkill, matchSkills } from "../skills.js";
+import { currentTimeBlock, webSearch } from "../tools.js";
 
 const MAX_MESSAGE_CHARS = 10000; // bounds LLM cost per request
 
@@ -32,13 +39,13 @@ const IMAGE_TYPES = new Set([
   "image/gif",
 ]);
 
-async function callModel({ apiKey, baseUrl, model, messages, maxTokens = 2048 }) {
+async function callModel({ apiKey, baseUrl, model, messages, maxTokens = 2048, onDelta }) {
   const payload = {
     model,
     messages,
     max_tokens: maxTokens,
     temperature: 0.1,
-    stream: false,
+    stream: !!onDelta,
   };
   // Kimi NIM expects this flag; other models reject unknown params.
   if (model.startsWith("moonshotai/")) {
@@ -66,6 +73,40 @@ async function callModel({ apiKey, baseUrl, model, messages, maxTokens = 2048 })
     // NVIDIA error text can include the raw API key — scrub before it
     // reaches a client or the logs.
     throw new Error(scrubSecrets(message));
+  }
+
+  // Streaming mode: parse OpenAI-compatible SSE chunks and emit deltas as
+  // they arrive, while still accumulating the full text for the final parse.
+  if (onDelta && response.body?.getReader) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let content = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith("data:")) continue;
+        const data = t.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        try {
+          const j = JSON.parse(data);
+          const delta = j.choices?.[0]?.delta?.content || "";
+          if (delta) {
+            content += delta;
+            onDelta(delta, content);
+          }
+        } catch {
+          /* ignore malformed chunk */
+        }
+      }
+    }
+    const parsed = parseAssistantJson(content);
+    return { data: null, content, parsed };
   }
 
   const data = await response.json();
@@ -259,8 +300,31 @@ export function createChatRouter() {
     const model = process.env.NVIDIA_MODEL || "moonshotai/kimi-k2.6";
     const visionModel = process.env.VISION_MODEL || "meta/llama-3.2-90b-vision-instruct";
 
+    // Hermes-style streaming: when the client asks, reply with Server-Sent
+    // Events instead of a JSON blob — deltas flow in as the model generates.
+    const stream = req.body?.stream === true;
+    const sse = (event, data) => {
+      if (stream) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    const sendError = (status, error) => {
+      if (stream) {
+        if (!res.headersSent) {
+          res.writeHead(200, {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+          });
+        }
+        sse("error", { error });
+        res.end();
+      } else {
+        res.status(status).json({ error });
+      }
+    };
+
     if (!apiKey) {
-      res.status(500).json({ error: "NVIDIA API key not configured" });
+      sendError(500, "NVIDIA API key not configured");
       return;
     }
 
@@ -269,15 +333,15 @@ export function createChatRouter() {
     // would otherwise throw or slip through as "[object Object]").
     const message = typeof req.body?.message === "string" ? req.body.message : "";
     if (!sessionId) {
-      res.status(400).json({ error: "sessionId required" });
+      sendError(400, "sessionId required");
       return;
     }
     if (!message.trim() && (!attachments || attachments.length === 0)) {
-      res.status(400).json({ error: "message required" });
+      sendError(400, "message required");
       return;
     }
     if (message.length > MAX_MESSAGE_CHARS) {
-      res.status(400).json({ error: "Message is too long" });
+      sendError(400, "Message is too long");
       return;
     }
 
@@ -288,7 +352,7 @@ export function createChatRouter() {
         [sessionId, req.user.id]
       );
       if (!session.rows[0]) {
-        res.status(404).json({ error: "Session not found" });
+        sendError(404, "Session not found");
         return;
       }
 
@@ -318,8 +382,68 @@ export function createChatRouter() {
       } catch {
         memoryBlock = null;
       }
-      const systemContent = memoryBlock
-        ? `${SYSTEM_PROMPT}\n\n${memoryBlock}`
+
+      // Hermes-style automations: if the user asked for a reminder, parse it
+      // and create it BEFORE the reply so the avatar can confirm naturally.
+      let reminderNote = null;
+      if (looksLikeReminder(message)) {
+        try {
+          const parsedReminder = await parseReminderIntent(message);
+          if (parsedReminder.reminder) {
+            const created = await createReminder(req.user.id, {
+              message: parsedReminder.message,
+              when: parsedReminder.when,
+              whenText: message.trim().slice(0, 120),
+            });
+            if (created) {
+              reminderNote =
+                `A reminder was just created for the user: "${created.message}" ` +
+                `scheduled for ${new Date(created.nextFireAt).toLocaleString()}. ` +
+                `Confirm it briefly and warmly in your reply.`;
+            }
+          }
+        } catch {
+          /* reminder parsing is best-effort */
+        }
+      }
+
+      // Hermes-style procedural memory: if a saved skill's trigger matches
+      // this message, inject its instructions.
+      let skillBlock = null;
+      try {
+        skillBlock = await matchSkills(req.user.id, message);
+      } catch {
+        skillBlock = null;
+      }
+
+      // Hermes-style skill creation: if the user explicitly asks to remember
+      // a task as a skill, distill and save it before replying.
+      let skillCreatedNote = null;
+      if (/remember this as a skill|save this as a skill|create a skill/i.test(message)) {
+        try {
+          const detected = await detectSkill(message);
+          if (detected) {
+            const saved = await createSkill(req.user.id, detected);
+            if (saved) {
+              skillCreatedNote =
+                `The user asked you to save a skill. You just created skill "${saved.name}" ` +
+                `(trigger: "${saved.trigger}"). Tell them it's saved and how to use it.`;
+            }
+          }
+        } catch {
+          /* skill creation is best-effort */
+        }
+      }
+
+      const extraBlocks = [
+        currentTimeBlock(),
+        memoryBlock,
+        skillBlock,
+        reminderNote,
+        skillCreatedNote,
+      ].filter(Boolean);
+      const systemContent = extraBlocks.length
+        ? `${SYSTEM_PROMPT}\n\n${extraBlocks.join("\n\n")}`
         : SYSTEM_PROMPT;
 
       const buildLlmMessages = (userText) => [
@@ -336,13 +460,59 @@ export function createChatRouter() {
         },
       ];
 
+      // Begin the SSE stream just before the first model call so errors
+      // that happened earlier still produce a clean JSON/SSE error.
+      if (stream) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+        sse("start", { sessionId });
+      }
+      const streamDelta = stream
+        ? (delta, full) => sse("delta", { delta, full })
+        : undefined;
+
       let result = await callModel({
         apiKey,
         baseUrl,
         model: activeModel,
         messages: buildLlmMessages(message.trim()),
         maxTokens: 2048,
+        onDelta: streamDelta,
       });
+
+      // Hermes-style tool use: run up to 2 tool iterations. If the model
+      // asks for a web search, execute it server-side and feed the results
+      // back as a follow-up turn so it can answer from real data.
+      for (let toolRound = 0; toolRound < 2; toolRound++) {
+        if (!/\{\s*"tool"\s*:\s*"web_search"/.test(result.content)) break;
+        const qm = result.content.match(/"query"\s*:\s*"((?:[^"\\]|\\.)*?)\s*"/);
+        const query = qm ? qm[1].replace(/\\"/g, '"') : null;
+        if (!query) break;
+        const searchBlock = await webSearch(query);
+        if (!searchBlock) break;
+        if (stream) sse("reset", { reason: "tool" });
+        result = await callModel({
+          apiKey,
+          baseUrl,
+          model: activeModel,
+          messages: [
+            ...buildLlmMessages(message.trim()),
+            { role: "assistant", content: result.content },
+            {
+              role: "user",
+              content:
+                searchBlock +
+                "\n\nNow answer the user's original question using these results. Reply with the usual JSON envelope.",
+            },
+          ],
+          maxTokens: 2048,
+          onDelta: streamDelta,
+        });
+      }
 
       if (!isValidParsed(result.parsed, message)) {
         // Retry with the same history (and images) so context is never lost.
@@ -352,12 +522,14 @@ export function createChatRouter() {
           message.trim() ||
           "Describe the attached image in a friendly sentence." +
           "\n\nIMPORTANT: Write out the complete answer now, all of it. Do not just acknowledge or promise — output the full content immediately.";
+        if (stream) sse("reset", { reason: "retry" });
         result = await callModel({
           apiKey,
           baseUrl,
           model: activeModel,
           messages: buildLlmMessages(retryText),
           maxTokens: 2048,
+          onDelta: streamDelta,
         });
       }
 
@@ -402,8 +574,18 @@ export function createChatRouter() {
       // that did land, and the memory drawer stays consistent.
       extractMemoryForSession(req.user.id, sessionId);
 
-      res.json({ content: result.content, parsed: result.parsed });
+      if (stream) {
+        sse("done", { content: result.content, parsed: result.parsed });
+        res.end();
+      } else {
+        res.json({ content: result.content, parsed: result.parsed });
+      }
     } catch (err) {
+      if (stream && res.headersSent) {
+        sse("error", { error: "Reply stream failed — please try again." });
+        res.end();
+        return;
+      }
       next(err);
     }
     }

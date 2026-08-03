@@ -28,6 +28,18 @@ const els = {
   memoryList: document.getElementById("memory-list"),
   memoryEmpty: document.getElementById("memory-empty"),
   memoryForgetAll: document.getElementById("memory-forget-all"),
+  skillsBtn: document.getElementById("skills-btn"),
+  skillsClose: document.getElementById("skills-close"),
+  skillsOverlay: document.getElementById("skills-overlay"),
+  skillsDrawer: document.getElementById("skills-drawer"),
+  skillsList: document.getElementById("skills-list"),
+  skillsEmpty: document.getElementById("skills-empty"),
+  remindersBtn: document.getElementById("reminders-btn"),
+  remindersClose: document.getElementById("reminders-close"),
+  remindersOverlay: document.getElementById("reminders-overlay"),
+  remindersDrawer: document.getElementById("reminders-drawer"),
+  remindersList: document.getElementById("reminders-list"),
+  remindersEmpty: document.getElementById("reminders-empty"),
   userEmail: document.getElementById("user-email"),
   logoutBtn: document.getElementById("logout-btn"),
   attachBtn: document.getElementById("attach-btn"),
@@ -651,6 +663,169 @@ function closeMemory() {
   els.memoryOverlay.hidden = true;
 }
 
+// ---------- Skills drawer ----------
+
+async function loadSkills() {
+  try {
+    const res = await fetch("/api/skills");
+    if (!res.ok) return;
+    const data = await res.json();
+    renderSkillsList(data.skills || []);
+  } catch (err) {
+    console.error("Failed to load skills:", err);
+  }
+}
+
+function renderSkillsList(skills) {
+  els.skillsList.replaceChildren();
+  els.skillsEmpty.hidden = skills.length > 0;
+
+  for (const skill of skills) {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+
+    const text = document.createElement("span");
+    text.className = "memory-item-text";
+    text.textContent = skill.name;
+
+    const desc = document.createElement("span");
+    desc.className = "memory-item-meta";
+    desc.textContent = skill.description || skill.trigger || "skill";
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "history-item-delete memory-item-delete";
+    del.title = "Delete skill";
+    del.setAttribute("aria-label", `Delete skill: ${skill.name}`);
+    del.textContent = "×";
+    del.addEventListener("click", async () => {
+      try {
+        const res = await fetch(`/api/skills/${skill.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("delete failed");
+        await loadSkills();
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    item.append(text, desc, del);
+    els.skillsList.appendChild(item);
+  }
+}
+
+function openSkills() {
+  loadSkills();
+  els.skillsDrawer.classList.add("open");
+  els.skillsDrawer.setAttribute("aria-hidden", "false");
+  els.skillsOverlay.hidden = false;
+}
+
+function closeSkills() {
+  els.skillsDrawer.classList.remove("open");
+  els.skillsDrawer.setAttribute("aria-hidden", "true");
+  els.skillsOverlay.hidden = true;
+}
+
+// ---------- Reminders drawer + poller ----------
+
+async function loadReminders() {
+  try {
+    const res = await fetch("/api/reminders");
+    if (!res.ok) return;
+    const data = await res.json();
+    renderRemindersList(data.reminders || []);
+  } catch (err) {
+    console.error("Failed to load reminders:", err);
+  }
+}
+
+function renderRemindersList(reminders) {
+  els.remindersList.replaceChildren();
+  els.remindersEmpty.hidden = reminders.length > 0;
+
+  for (const r of reminders) {
+    const item = document.createElement("div");
+    item.className = "memory-item";
+
+    const text = document.createElement("span");
+    text.className = "memory-item-text";
+    text.textContent = r.message;
+
+    const when = document.createElement("span");
+    when.className = "memory-item-meta";
+    when.textContent = `⏰ ${formatReminderTime(r.nextFireAt)}`;
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "history-item-delete memory-item-delete";
+    del.title = "Cancel reminder";
+    del.setAttribute("aria-label", `Cancel reminder: ${r.message}`);
+    del.textContent = "×";
+    del.addEventListener("click", async () => {
+      try {
+        const res = await fetch(`/api/reminders/${r.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("delete failed");
+        await loadReminders();
+      } catch (err) {
+        console.error(err);
+      }
+    });
+
+    item.append(text, when, del);
+    els.remindersList.appendChild(item);
+  }
+}
+
+function formatReminderTime(iso) {
+  const date = new Date(iso);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function openReminders() {
+  loadReminders();
+  els.remindersDrawer.classList.add("open");
+  els.remindersDrawer.setAttribute("aria-hidden", "false");
+  els.remindersOverlay.hidden = false;
+}
+
+function closeReminders() {
+  els.remindersDrawer.classList.remove("open");
+  els.remindersDrawer.setAttribute("aria-hidden", "true");
+  els.remindersOverlay.hidden = true;
+}
+
+/**
+ * Poll for due reminders while the app is open. When one fires, announce it
+ * as a system message and speak it through the avatar. Runs every 20s.
+ */
+function startReminderPoller() {
+  setInterval(async () => {
+    if (document.visibilityState !== "visible" || busy) return;
+    try {
+      const res = await fetch("/api/reminders/due");
+      if (!res.ok) return;
+      const { due } = await res.json();
+      for (const r of due || []) {
+        const text = `⏰ Reminder: ${r.message}`;
+        showSystemMessage(text);
+        loadReminders(); // keep the drawer fresh
+        if (config.elevenlabs && avatar?.head) {
+          setStatus("speaking");
+          await speakResponse({ say: `Reminder: ${r.message}`, emotion: "neutral", gesture: "none" });
+          setStatus("idle");
+        }
+      }
+    } catch (err) {
+      /* poller is best-effort */
+    }
+  }, 20_000);
+}
+
 async function startNewChat() {
   interruptAll();
   clearMessages();
@@ -689,15 +864,39 @@ async function speakResponse(structured) {
 
 function interruptAll() {
   tts?.stop();
+  chat?.stop();
   avatar?.interrupt();
   stt?.stop();
   setBusy(false);
   if (!busy) setStatus("idle");
 }
 
+const SLASH_COMMANDS = {
+  "/new": { run: startNewChat, hint: "Start a new conversation" },
+  "/memory": { run: openMemory, hint: "Show what the avatar remembers" },
+  "/skills": { run: openSkills, hint: "Show saved skills" },
+  "/reminders": { run: openReminders, hint: "Show your reminders" },
+  "/help": { run: showHelp, hint: "List available commands" },
+};
+
+function showHelp() {
+  const lines = Object.entries(SLASH_COMMANDS)
+    .map(([cmd, c]) => `${cmd} — ${c.hint}`);
+  showSystemMessage(`Available commands:\n${lines.join("\n")}`);
+}
+
 async function handleUserMessage(text) {
   const trimmed = text.trim();
   if ((!trimmed && pendingAttachments.length === 0) || busy || !config.ready) return;
+
+  // Hermes-style slash commands run locally and never hit the LLM.
+  const cmd = SLASH_COMMANDS[trimmed.split(/\s+/)[0]?.toLowerCase()];
+  if (cmd) {
+    appendMessage("user", trimmed, {});
+    els.input.value = "";
+    await cmd.run();
+    return;
+  }
 
   interruptAll();
   const attachments = pendingAttachments;
@@ -732,12 +931,14 @@ async function handleUserMessage(text) {
     // Refresh history list so titles/counts stay fresh.
     loadSessions();
   } catch (err) {
-    finalizeStreamingMessage(assistantBody, `Error: ${err.message}`);
-    console.error(err);
-    // Restore the attachments so the user doesn't lose their files.
-    if (attachments.length > 0) {
-      pendingAttachments = [...attachments, ...pendingAttachments].slice(0, MAX_ATTACHMENTS);
-      renderAttachmentPreview();
+    if (err.message !== "Stopped") {
+      finalizeStreamingMessage(assistantBody, `Error: ${err.message}`);
+      console.error(err);
+      // Restore the attachments so the user doesn't lose their files.
+      if (attachments.length > 0) {
+        pendingAttachments = [...attachments, ...pendingAttachments].slice(0, MAX_ATTACHMENTS);
+        renderAttachmentPreview();
+      }
     }
   } finally {
     setBusy(false);
@@ -747,6 +948,9 @@ async function handleUserMessage(text) {
 
 function structuredPreview(raw) {
   try {
+    // While the model is mid-tool-call it emits JSON like
+    // {"tool":"web_search","query":"..."} — don't flash that at the user.
+    if (/{\s*"tool"\s*:\s*"web_search"/.test(raw)) return "";
     const match = raw.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)/);
     if (match) return match[1].replace(/\\"/g, '"');
   } catch {
@@ -881,6 +1085,12 @@ async function init() {
   els.memoryBtn.addEventListener("click", openMemory);
   els.memoryClose.addEventListener("click", closeMemory);
   els.memoryOverlay.addEventListener("click", closeMemory);
+  els.skillsBtn.addEventListener("click", openSkills);
+  els.skillsClose.addEventListener("click", closeSkills);
+  els.skillsOverlay.addEventListener("click", closeSkills);
+  els.remindersBtn.addEventListener("click", openReminders);
+  els.remindersClose.addEventListener("click", closeReminders);
+  els.remindersOverlay.addEventListener("click", closeReminders);
   els.memoryForgetAll.addEventListener("click", async () => {
     if (!confirm("Forget everything the avatar remembers about you?")) return;
     try {
@@ -904,7 +1114,15 @@ async function init() {
     if (e.key === "Escape" && els.memoryDrawer.classList.contains("open")) {
       closeMemory();
     }
+    if (e.key === "Escape" && els.skillsDrawer.classList.contains("open")) {
+      closeSkills();
+    }
+    if (e.key === "Escape" && els.remindersDrawer.classList.contains("open")) {
+      closeReminders();
+    }
   });
+
+  startReminderPoller();
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") avatar?.head?.start();

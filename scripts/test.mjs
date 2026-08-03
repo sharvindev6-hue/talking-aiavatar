@@ -11,6 +11,9 @@ import {
   factsOverlap,
   parseExtraction,
 } from "../server/memory.js";
+import { looksLikeReminder } from "../server/reminders.js";
+import { currentTimeBlock } from "../server/tools.js";
+import { detectSkill, createSkill, listSkills, deleteSkill, matchSkills } from "../server/skills.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -150,6 +153,24 @@ check(
   })()
 );
 check("parseExtraction empty on junk", parseExtraction("no json here").facts.length === 0);
+
+// --- 6. Reminder detection (pure regex) ---
+console.log("reminders:");
+check("detects 'remind me to'", looksLikeReminder("remind me to call mom"));
+check("detects 'set a reminder'", looksLikeReminder("set a reminder for tomorrow"));
+check("detects 'don't forget to'", looksLikeReminder("don't forget to pay rent"));
+check("rejects plain chat", !looksLikeReminder("what's the weather like?"));
+check("rejects empty", !looksLikeReminder(""));
+
+// --- 7. Tools: time block (pure) ---
+console.log("tools:");
+check("time block mentions a time", /Current time/.test(currentTimeBlock()));
+check("time block contains a real year", /\d{4}/.test(currentTimeBlock()));
+
+// --- 8. Skills module loads (exports exist, no DB calls made here) ---
+console.log("skills:");
+check("module exports create/list/delete/match",
+  [detectSkill, createSkill, listSkills, deleteSkill, matchSkills].every((f) => typeof f === "function"));
 
 console.log(`\n${checks} checks, ${failures} failed`);
 process.exit(failures ? 1 : 0);

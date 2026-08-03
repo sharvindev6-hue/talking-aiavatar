@@ -15,6 +15,8 @@ import { createTTSRouter } from "./routes/tts.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { createHistoryRouter } from "./routes/history.js";
 import { createMemoryRouter } from "./routes/memory.js";
+import { createRemindersRouter } from "./routes/reminders.js";
+import { createSkillsRouter } from "./routes/skills.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -149,6 +151,8 @@ app.use("/api/tts", createTTSRouter());
 app.use("/api/auth", createAuthRouter());
 app.use("/api/history", createHistoryRouter());
 app.use("/api/memory", createMemoryRouter());
+app.use("/api/reminders", createRemindersRouter());
+app.use("/api/skills", createSkillsRouter());
 
 const publicDir = path.join(__dirname, "..", "public");
 app.use(express.static(publicDir, { index: false }));
