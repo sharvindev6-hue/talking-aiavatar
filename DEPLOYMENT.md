@@ -33,21 +33,26 @@ gh repo create avatar-ai --private --source=. --push
 | `ELEVENLABS_VOICE_ID` | your voice id |
 | `ELEVENLABS_MODEL_ID` | `eleven_turbo_v2_5` |
 | `NVIDIA_API_KEY` | your NVIDIA NIM key |
+| `NVIDIA_BASE_URL` | `https://integrate.api.nvidia.com/v1` |
 | `NVIDIA_MODEL` | `meta/llama-3.1-70b-instruct` |
 | `VISION_MODEL` | `meta/llama-3.2-90b-vision-instruct` |
 | `DATABASE_URL` | your **pooled** Neon connection string |
-| `ALLOWED_ORIGINS` | `https://<your-app>.vercel.app` (your deployment URL — set after first deploy) |
 | `TRUST_PROXY` | `true` (so rate limits see real client IPs) |
+| `ALLOWED_ORIGINS` | *(optional)* strict origin allowlist. Leave unset and the app
+  accepts **same-origin requests only** — which works automatically on localhost
+  and every Vercel URL (main + previews). Set it later (e.g. `https://your-app.vercel.app`)
+  once you want a strict allowlist. |
 | `A2F_ENABLED` | `false` |
 
-5. Click **Deploy**
+5. Click **Deploy** — no origin configuration needed afterwards.
 
 ## 3. After first deploy
 
 - Vercel gives you a URL like `https://avatar-ai.vercel.app`
-- Add that URL to the `ALLOWED_ORIGINS` env var, then **Redeploy**
-  (this is what lets the login cookie work — the CSRF origin check rejects foreign origins)
 - Optional: add a custom domain in Vercel → **Domains**
+- Tip: if you ever change the domain or add custom domains, the same-origin
+  default keeps working; only set `ALLOWED_ORIGINS` if you need a strict
+  allowlist (e.g. API access from another site).
 
 ## 4. CI/CD (already configured)
 

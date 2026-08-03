@@ -1,6 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
 import cookieParser from "cookie-parser";
 import http from "http";
 import path from "path";
@@ -19,16 +18,30 @@ import { createHistoryRouter } from "./routes/history.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
-// Explicit allowlist of origins that may call the API with cookies.
-let ALLOWED_ORIGINS = (
-  process.env.ALLOWED_ORIGINS || "http://localhost:3000,http://localhost:3003"
-)
+// Origin policy.
+// - If ALLOWED_ORIGINS is explicitly set, ONLY those origins may call the API
+//   with cookies (strict allowlist — recommended once you have a stable
+//   production domain).
+// - If it is NOT set, default to same-origin only: a request's Origin must
+//   match its own Host. This is safe (a foreign site's origin never matches
+//   our host) and means the app works out of the box on any deployment
+//   domain — localhost, the main Vercel URL, and Vercel preview deployments.
+const EXPLICIT_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
-// Guard against a misconfigured/empty ALLOWED_ORIGINS env (e.g. ",").
-if (ALLOWED_ORIGINS.length === 0) {
-  ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:3003"];
+
+function originAllowed(req, origin) {
+  if (!origin) return true; // same-origin GETs, curl, native clients
+  if (EXPLICIT_ORIGINS.length > 0) return EXPLICIT_ORIGINS.includes(origin);
+  // Same-origin default: compare the Origin against this request's own host.
+  const proto = String(
+    req.headers["x-forwarded-proto"] || req.protocol || "http"
+  )
+    .split(",")[0]
+    .trim();
+  const host = req.headers.host || "";
+  return origin === `${proto}://${host}`;
 }
 
 const app = express();
@@ -70,22 +83,36 @@ app.use((_req, res, next) => {
   next();
 });
 
-// CORS: reflect only allowlisted origins (same-origin is always fine).
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-      return cb(null, false);
-    },
-    credentials: true,
-  })
-);
+// CORS: reflect the request origin when allowed (same-origin is always fine),
+// and answer preflights. Implemented inline so the same origin policy is used
+// for both CORS headers and the CSRF check below.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && originAllowed(req, origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+  if (req.method === "OPTIONS") {
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      req.headers["access-control-request-headers"] || "Content-Type,Authorization"
+    );
+    res.setHeader("Access-Control-Max-Age", "86400");
+    return res.status(204).end();
+  }
+  next();
+});
 
 // CSRF defense-in-depth: reject mutating requests from unknown origins.
 app.use((req, res, next) => {
   if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
     const origin = req.headers.origin;
-    if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+    if (origin && !originAllowed(req, origin)) {
       return res.status(403).json({ error: "Forbidden origin" });
     }
   }
