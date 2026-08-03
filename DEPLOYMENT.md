@@ -38,7 +38,6 @@ gh repo create avatar-ai --private --source=. --push
 | `VISION_MODEL` | `meta/llama-3.2-90b-vision-instruct` |
 | `DATABASE_URL` | your **pooled** Neon connection string |
 | `TRUST_PROXY` | `true` (so rate limits see real client IPs) |
-| `ADMIN_EMAILS` | comma-separated emails of users who may open `/admin.html` (analytics + per-user chat history) |
 | `ALLOWED_ORIGINS` | *(optional)* strict origin allowlist. Leave unset and the app
   accepts **same-origin requests only** — which works automatically on localhost
   and every Vercel URL (main + previews). Set it later (e.g. `https://your-app.vercel.app`)
@@ -64,18 +63,12 @@ gh repo create avatar-ai --private --source=. --push
 
 Vercel's GitHub integration auto-deploys every push to `main` (preview deploys on PRs).
 
-## Admin dashboard
+## Admin console (separate private repo)
 
-Open `/admin.html` on your deployed app (or `http://localhost:3003/admin.html` locally) and
-sign in with an email listed in `ADMIN_EMAILS`. The console shows:
-
-- **Overview** — user/message totals, active users, messages-per-day chart, most active users
-- **Users** — every account with session/message counts, searchable; click a user to read
-  their full chat history (both their messages and the avatar's replies)
-- **Live activity** — a real-time feed of every message sent to the model, searchable by
-  email or content, auto-refreshing
-
-Non-admin accounts get `403` on all `/api/admin/*` endpoints.
+The operator dashboard (analytics, user chat history, live activity feed) lives in its own
+**private** repository (`talking-aiavatar-admin`) as a standalone app that reads from the
+same database. It is not part of this public codebase. See that repo's README for how to
+run and deploy it.
 
 ## Notes & known limits
 

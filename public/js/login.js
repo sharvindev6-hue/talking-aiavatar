@@ -11,7 +11,7 @@ const togglePass = document.getElementById("toggle-pass");
 let mode = "login";
 
 // Where to go after a successful sign-in. Only same-origin relative paths
-// are honored (the admin page sends ?next=/admin.html).
+// are honored (e.g. /?next=/some-page).
 const nextParam = new URLSearchParams(window.location.search).get("next") || "/";
 const redirectTo = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
 
