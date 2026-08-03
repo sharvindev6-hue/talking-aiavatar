@@ -4,6 +4,8 @@ const state = {
   user: null,
   view: "overview",
   users: { q: "", limit: 25, offset: 0, total: 0 },
+  feed: { q: "", limit: 60 },
+  drawer: null, // { userId, offset, limit, loaded }
   feedTimer: null,
 };
 
@@ -132,7 +134,7 @@ async function loadOverview() {
       statCard("Messages", fmtNum(s.messages), { text: `+${fmtNum(s.messages_24h)} in 24h`, cls: "good" }, "#a78bfa", ICONS.messages) +
       statCard("Active now", fmtNum(s.active_5m), { text: "chatted in last 5 min", cls: s.active_5m ? "good" : "" }, "#34d399", ICONS.active) +
       statCard("Active 24h", fmtNum(s.active_24h), { text: `${Math.round((s.active_24h / Math.max(s.users, 1)) * 100)}% of users`, cls: "good" }, "#fbbf24", ICONS.active) +
-      statCard("Sessions", fmtNum(s.sessions), { text: `${fmtNum(s.sessions / Math.max(s.users, 1) > 0 ? Math.round(s.sessions / Math.max(s.users, 1)) : 0)} per user` }, "#38bdf8", ICONS.sessions) +
+      statCard("Sessions", fmtNum(s.sessions), { text: `${fmtNum(Math.round(s.sessions / Math.max(s.users, 1)))} per user` }, "#38bdf8", ICONS.sessions) +
       statCard("New users", fmtNum(s.new_users_24h), { text: "in last 24h", cls: "warn" }, "#f472b6", ICONS.new);
 
     renderChart(s.daily || []);
@@ -181,10 +183,10 @@ function renderChart(daily) {
 }
 
 /* ---------------- Feed ---------------- */
-async function loadFeedInto(container, limit) {
+async function loadFeedInto(container, limit, q) {
   try {
-    const q = container === $("overview-feed") ? "" : state.users.q;
-    const data = await api(`/api/admin/feed?q=${encodeURIComponent(q)}&limit=${limit}`);
+    const query = q === undefined ? state.feed.q : q;
+    const data = await api(`/api/admin/feed?q=${encodeURIComponent(query)}&limit=${limit}`);
     renderFeed(container, data.feed);
   } catch (err) {
     toast(err.message);
@@ -217,11 +219,11 @@ function renderFeed(container, feed) {
 }
 
 async function loadFeed() {
-  await loadFeedInto($("feed-list"), 60);
+  await loadFeedInto($("feed-list"), state.feed.limit);
   if (state.feedTimer) clearInterval(state.feedTimer);
   state.feedTimer = setInterval(async () => {
     // Only auto-refresh when the feed tab is active.
-    if (state.view === "feed") await loadFeedInto($("feed-list"), 60);
+    if (state.view === "feed") await loadFeedInto($("feed-list"), state.feed.limit);
   }, 6000);
 }
 
@@ -292,6 +294,8 @@ function renderPager() {
 }
 
 /* ---------------- User drawer ---------------- */
+const DRAWER_PAGE = 60;
+
 async function openUser(userId) {
   const overlay = $("overlay");
   overlay.hidden = false;
@@ -300,33 +304,64 @@ async function openUser(userId) {
   body.innerHTML = `<div class="empty">Loading…</div>`;
   try {
     const data = await api(`/api/admin/users/${encodeURIComponent(userId)}`);
-    const msgs = await api(
-      `/api/admin/users/${encodeURIComponent(userId)}/messages?limit=60`
-    );
     $("drawer-email").textContent = data.user.email;
     $("drawer-avatar").textContent = initials(data.user.email);
     $("drawer-meta").textContent = `${data.sessions.length} session${data.sessions.length === 1 ? "" : "s"} · joined ${fmtTime(data.user.created_at)}`;
-
-    body.innerHTML =
-      `<div class="section-title">Recent messages</div>` +
-      (msgs.messages.length
-        ? msgs.messages
-            .map(
-              (m) => `
-          <div class="msg-block">
-            <div class="msg-block-head">
-              <span class="role-chip ${esc(m.role)}">${esc(m.role)}</span>
-              ${m.sessionTitle ? `<span class="msg-session">${esc(m.sessionTitle)}</span>` : ""}
-              <span style="margin-left:auto" class="feed-time">${fmtTime(m.createdAt)}</span>
-            </div>
-            <div class="msg-bubble ${esc(m.role)}">${esc(m.content)}</div>
-            <div class="msg-meta">${m.attachments?.length ? `📎 ${m.attachments.map((a) => esc(a.name)).join(", ")}` : ""}</div>
-          </div>`
-            )
-            .join("")
-        : `<div class="empty">This user hasn't sent any messages yet</div>`);
+    state.drawer = { userId, offset: 0, loaded: 0 };
+    body.innerHTML = `<div class="section-title">Messages</div>`;
+    await drawerLoadMore();
   } catch (err) {
     body.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+  }
+}
+
+async function drawerLoadMore() {
+  const body = $("drawer-body");
+  const d = state.drawer;
+  if (!d) return;
+  try {
+    const msgs = await api(
+      `/api/admin/users/${encodeURIComponent(d.userId)}/messages?limit=${DRAWER_PAGE}&offset=${d.offset}`
+    );
+    if (!msgs.messages.length && d.offset === 0) {
+      body.insertAdjacentHTML(
+        "beforeend",
+        `<div class="empty">This user hasn't sent any messages yet</div>`
+      );
+      return;
+    }
+    body.insertAdjacentHTML(
+      "beforeend",
+      msgs.messages
+        .map(
+          (m) => `
+        <div class="msg-block">
+          <div class="msg-block-head">
+            <span class="role-chip ${esc(m.role)}">${esc(m.role)}</span>
+            ${m.sessionTitle ? `<span class="msg-session">${esc(m.sessionTitle)}</span>` : ""}
+            <span style="margin-left:auto" class="feed-time">${fmtTime(m.createdAt)}</span>
+          </div>
+          <div class="msg-bubble ${esc(m.role)}">${esc(m.content)}</div>
+          <div class="msg-meta">${m.attachments?.length ? `📎 ${m.attachments.map((a) => esc(a.name)).join(", ")}` : ""}</div>
+        </div>`
+        )
+        .join("")
+    );
+    d.offset += msgs.messages.length;
+    d.loaded += msgs.messages.length;
+    const more = body.querySelector("#drawer-more");
+    more?.remove();
+    if (msgs.messages.length === DRAWER_PAGE) {
+      const btn = document.createElement("button");
+      btn.id = "drawer-more";
+      btn.className = "text-link";
+      btn.style.cssText = "display:block;margin:0.6rem auto;padding:0.5rem 1rem;border:1px solid var(--border);border-radius:0.6rem;background:var(--bg-raised)";
+      btn.textContent = `Load older messages (${d.loaded} shown)`;
+      btn.addEventListener("click", drawerLoadMore);
+      body.appendChild(btn);
+    }
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -345,7 +380,9 @@ function bindEvents() {
     window.location.href = "/login.html";
   });
   $("refresh-stats").addEventListener("click", loadOverview);
-  $("refresh-feed").addEventListener("click", () => loadFeedInto($("feed-list"), 60));
+  $("refresh-feed").addEventListener("click", () =>
+    loadFeedInto($("feed-list"), state.feed.limit)
+  );
   $("goto-feed").addEventListener("click", () => setView("feed"));
   $("drawer-close").addEventListener("click", closeDrawer);
   $("overlay").addEventListener("click", (e) => {
@@ -366,8 +403,8 @@ function bindEvents() {
   $("feed-search").addEventListener("input", (e) => {
     clearTimeout(feedTimer);
     feedTimer = setTimeout(() => {
-      state.users.q = e.target.value.trim();
-      loadFeedInto($("feed-list"), 60);
+      state.feed.q = e.target.value.trim();
+      loadFeedInto($("feed-list"), state.feed.limit);
     }, 300);
   });
 

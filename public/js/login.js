@@ -10,6 +10,11 @@ const togglePass = document.getElementById("toggle-pass");
 
 let mode = "login";
 
+// Where to go after a successful sign-in. Only same-origin relative paths
+// are honored (the admin page sends ?next=/admin.html).
+const nextParam = new URLSearchParams(window.location.search).get("next") || "/";
+const redirectTo = nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/";
+
 function setMode(next) {
   mode = next;
   const isLogin = mode === "login";
@@ -71,7 +76,7 @@ form.addEventListener("submit", async (e) => {
       return;
     }
 
-    window.location.href = "/";
+    window.location.href = redirectTo;
   } catch (err) {
     showError("Network error — is the server running?");
   } finally {
@@ -84,7 +89,7 @@ form.addEventListener("submit", async (e) => {
 (async () => {
   try {
     const res = await fetch("/api/auth/me");
-    if (res.ok) window.location.href = "/";
+    if (res.ok) window.location.href = redirectTo;
   } catch {
     /* server offline — let the form handle it */
   }

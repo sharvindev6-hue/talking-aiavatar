@@ -81,8 +81,8 @@ export function createAdminRouter() {
         query(`
           SELECT to_char(day, 'YYYY-MM-DD') AS day, count(m.id)::int AS count
             FROM generate_series(
-                   date_trunc('day', now() - interval '13 days'),
-                   date_trunc('day', now()),
+                   date_trunc('day', now() AT TIME ZONE 'UTC' - interval '13 days'),
+                   date_trunc('day', now() AT TIME ZONE 'UTC'),
                    interval '1 day'
                  ) AS day
             LEFT JOIN messages m
@@ -104,7 +104,6 @@ export function createAdminRouter() {
 
       res.json({
         ...totals.rows[0],
-        activeUsers5m: totals.rows[0].active_5m,
         daily: daily.rows.map((d) => ({ day: d.day, count: d.count })),
         topUsers: topUsers.rows.map((u) => ({
           id: u.id,
