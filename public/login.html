@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in · Avatar AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/login.css" />
+</head>
+<body>
+  <div class="auth-backdrop">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="auth-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="4.2" />
+            <path d="M4.5 20.5c1.2-4 4-6 7.5-6s6.3 2 7.5 6" />
+          </svg>
+        </div>
+        <h1>Avatar AI</h1>
+        <p class="auth-subtitle">Your 3D companion, ready when you are</p>
+      </div>
+
+      <div class="auth-tabs" role="tablist" aria-label="Authentication">
+        <button type="button" id="tab-login" class="auth-tab active" role="tab" aria-selected="true">Sign in</button>
+        <button type="button" id="tab-register" class="auth-tab" role="tab" aria-selected="false">Create account</button>
+      </div>
+
+      <form id="auth-form" autocomplete="on" novalidate>
+        <label class="field">
+          <span class="field-label">Email</span>
+          <input id="email" type="email" name="email" placeholder="you@example.com" required autocomplete="email" />
+        </label>
+        <label class="field">
+          <span class="field-label">Password</span>
+          <div class="password-wrap">
+            <input id="password" type="password" name="password" placeholder="At least 8 characters" required autocomplete="current-password" />
+            <button type="button" id="toggle-pass" class="password-toggle" aria-label="Show password">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z" />
+                <circle cx="12" cy="12" r="2.8" />
+              </svg>
+            </button>
+          </div>
+          <span id="password-hint" class="field-hint">Use at least 8 characters for a new account.</span>
+        </label>
+
+        <div id="auth-error" class="auth-error" hidden></div>
+
+        <button type="submit" id="submit-btn" class="auth-submit">Sign in</button>
+      </form>
+
+      <p class="auth-footnote">Your chat history is saved to your account.</p>
+    </div>
+  </div>
+
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

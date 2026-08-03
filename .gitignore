@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Vercel
+.vercel
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+coverage/

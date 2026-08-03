@@ -1,0 +1,23 @@
+{
+  "name": "avatar-ai",
+  "version": "1.0.0",
+  "description": "Real-time 3D AI avatar with ElevenLabs voice and Kimi brain",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node scripts/test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@met4citizen/talkinghead": "^1.7.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
